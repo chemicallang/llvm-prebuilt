@@ -29,13 +29,30 @@ jobs:
             runner: macos-26
 
     steps:
-      # Checkout chemical-bootstrap only
+      # Checkout chemical-bootstrap
       - name: Checkout chemical-bootstrap
         uses: actions/checkout@v4
         with:
           repository: chemicallang/chemical-bootstrap
           token: ${{ secrets.GITHUB_TOKEN }}
           path: chemical-bootstrap
+
+      # Get latest release info (fail if none exists)
+      - name: Get latest release
+        id: get_release
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const latest = releases.data.find(r => !r.draft && !r.prerelease);
+            if (!latest) {
+              throw new Error("No release exists! Create a release manually before running this workflow.");
+            }
+            core.setOutput("id", latest.id);
+            core.setOutput("tag", latest.tag_name);
 
       # Build chemical-bootstrap
       - name: Build chemical-bootstrap
@@ -45,6 +62,7 @@ jobs:
           chmod +x build || true
           ./build native-${{ matrix.os }}-gnu native
 
+      # Compress build output
       - name: Compress build
         id: compress
         working-directory: chemical-bootstrap
@@ -54,27 +72,17 @@ jobs:
           ZIP_NAME="${{ matrix.os }}-${{ matrix.arch }}.zip"
           rm -f "$ZIP_NAME"
           if [ "${{ matrix.os }}" = "windows" ]; then
-            # Use PowerShell Core on Windows runners to create a zip
-            pwsh -NoProfile -NonInteractive -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory('${OUT_DIR}', '${ZIP_NAME}')"
+            pwsh -NoProfile -NonInteractive -Command "$p='${PWD}/$OUT_DIR'; [System.IO.Compression.ZipFile]::CreateFromDirectory($p, '${PWD}/$ZIP_NAME')"
           else
             zip -r "$ZIP_NAME" "$OUT_DIR"
           fi
           echo "zip_file=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      # Create a release if none exists
-      - name: Create release
-        id: release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: bootstrap-${{ github.run_number }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Upload zip to release
+      # Upload to existing release directly
       - name: Upload release asset
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: bootstrap-${{ github.run_number }}
+          tag_name: ${{ steps.get_release.outputs.tag }}
           files: chemical-bootstrap/${{ steps.compress.outputs.zip_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
