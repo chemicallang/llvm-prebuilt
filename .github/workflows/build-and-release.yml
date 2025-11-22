@@ -4,9 +4,6 @@ permissions:
   contents: write
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -50,15 +47,9 @@ jobs:
         working-directory: chemical-bootstrap
         run: .\build.bat native-windows-gnu native
 
-      # Save the out-win folder as cache
-      # TODO: save out-win folder as a release asset into the latest release
-      # - name: Save cache for chemical-bootstrap/out-win
-      #   if: success()
-      #   id: bootstrap-cache-save
-      #   uses: actions/cache/save@v4
-      #   with:
-      #     path: chemical-bootstrap/out-win/
-      #     key: ${{ runner.os }}-${{ steps.get-sha.outputs.sha }}-${{ matrix.arch }}
+      # Create a release archive
+      - name: Compress release assets
+        run: 7z a -tzip windows-${{ matrix.arch }}.zip chemical-bootstrap/out-win
 
       # ––– Get information about the latest release –––
       - name: Get latest release info
@@ -81,8 +72,6 @@ jobs:
             core.setOutput("tag", latestRelease.tag_name);
             core.setOutput("id", latestRelease.id);
 
-
-      # TODO: zip file is NOT present at the moment
       # Upload release assets
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
@@ -131,15 +120,9 @@ jobs:
         working-directory: chemical-bootstrap
         run: ./build native-linux-gnu native
 
-      # TODO: save out folder as a release asset into the latest release
-      # saves the out folder in cache
-      # - name: Save cache for chemical-bootstrap
-      #   if: success()
-      #   id: bootstrap-cache-save
-      #   uses: actions/cache/save@v4
-      #   with:
-      #     path: chemical-bootstrap/out/
-      #     key: ${{ runner.os }}-${{ steps.get-sha.outputs.sha }}-${{ matrix.arch }}
+      # Create a release archive
+      - name: Compress release assets
+        run: tar -czf linux-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
 
       # ––– Get information about the latest release –––
       - name: Get latest release info
@@ -162,13 +145,13 @@ jobs:
             core.setOutput("tag", latestRelease.tag_name);
             core.setOutput("id", latestRelease.id);
 
-      # TODO: zip file is NOT present at the moment
-      - name: Upload release artifacts
+      # Upload release assets
+      - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_latest_release.outputs.tag }}
           files: |
-            linux-${{ matrix.arch }}.zip
+            linux-${{ matrix.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -216,15 +199,9 @@ jobs:
           chmod +x build
           ./build native-linux-gnu native
 
-      # TODO: save out folder as a release asset into the latest release
-      # saves the out folder in cache
-      # - name: Save cache for chemical-bootstrap
-      #   if: success()
-      #   id: bootstrap-cache-save
-      #   uses: actions/cache/save@v4
-      #   with:
-      #     path: chemical-bootstrap/out/
-      #     key: ${{ runner.os }}-${{ steps.get-sha.outputs.sha }}-${{ matrix.arch }}
+      # Create a release archive
+      - name: Compress release assets
+        run: tar -czf linux-alpine-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
 
       - name: Get latest release info
         id: get_latest_release
@@ -246,13 +223,13 @@ jobs:
             core.setOutput("tag", latestRelease.tag_name);
             core.setOutput("id", latestRelease.id);
 
-      # TODO: zip file is NOT present at the moment
-      - name: Upload release artifacts
+      # Upload release assets
+      - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_latest_release.outputs.tag }}
           files: |
-            linux-alpine-${{ matrix.arch }}.zip
+            linux-alpine-${{ matrix.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -296,15 +273,9 @@ jobs:
           chmod +x build
           ./build native-macos-none native
 
-      # TODO: save out folder as a release asset into the latest release
-      # Save cache
-      # - name: Save cache for chemical-bootstrap
-      #   if: success()
-      #   id: bootstrap-cache-save
-      #   uses: actions/cache/save@v4
-      #   with:
-      #     path: chemical-bootstrap/out/
-      #     key: ${{ runner.os }}-${{ steps.get-sha.outputs.sha }}-${{ matrix.arch }}
+      # Create a release archive
+      - name: Compress release assets
+        run: tar -czf macos-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
 
       # Get latest release info
       - name: Get latest release info
@@ -324,13 +295,12 @@ jobs:
             core.setOutput("tag", latestRelease.tag_name);
             core.setOutput("id", latestRelease.id);
 
-      # TODO: zip file is NOT present at the moment
       # Upload assets
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_latest_release.outputs.tag }}
           files: |
-            macos-${{ matrix.arch }}.zip
+            macos-${{ matrix.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
