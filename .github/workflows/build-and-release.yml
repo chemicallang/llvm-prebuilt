@@ -47,9 +47,13 @@ jobs:
         working-directory: chemical-bootstrap
         run: .\build.bat native-windows-gnu native
 
-      # Create a release archive
       - name: Compress release assets
-        run: 7z a -tzip windows-${{ matrix.arch }}.zip chemical-bootstrap/out-win
+        shell: pwsh
+        run: |
+          # create zip that contains out-win/ at archive root (not chemical-bootstrap/out-win)
+          Push-Location chemical-bootstrap
+          7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
+          Pop-Location
 
       # ––– Get information about the latest release –––
       - name: Get latest release info
