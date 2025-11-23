@@ -55,6 +55,9 @@ jobs:
           7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
           Pop-Location
 
+      - name: Show zip contents (debug)
+        run: 7z l windows-${{ matrix.arch }}.zip
+
       # ––– Get information about the latest release –––
       - name: Get latest release info
         id: get_latest_release
