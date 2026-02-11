@@ -17,7 +17,7 @@ jobs:
           - arch: x64
             runner: windows-2025
           - arch: arm64
-            runner: blacksmith-4vcpu-windows-2025
+            runner: windows-11-arm
     steps:
       # ––– Checkout repositories –––
       - name: Checkout chemical-bootstrap repository
@@ -95,7 +95,7 @@ jobs:
           - arch: x64
             runner: ubuntu-24.04
           - arch: arm64
-            runner: blacksmith-4vcpu-ubuntu-2404-arm
+            runner: ubuntu-24.04-arm
     steps:
       # ––– Checkout repositories –––
       - name: Checkout chemical-bootstrap repository
@@ -171,7 +171,7 @@ jobs:
           - arch: x64
             runner: ubuntu-24.04
           - arch: arm64
-            runner: blacksmith-4vcpu-ubuntu-2404-arm
+            runner: ubuntu-24.04-arm
     steps:
 
       # ––– Install dependencies –––
@@ -244,7 +244,7 @@ jobs:
         include:
           - arch: x64
             runner: macos-15-intel
-          - arch: blacksmith-4vcpu-ubuntu-2404-arm
+          - arch: arm64
             runner: macos-26
     steps:
       # ––– Install dependencies –––
