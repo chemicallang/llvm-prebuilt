@@ -1,0 +1,70 @@
+#!/bin/sh
+# This file is licensed under the public domain.
+
+set -eu
+
+TARGET="$1" # Example: riscv64-linux-gnu
+MCPU="$2" # Examples: `baseline`, `native`, `generic+v7a`, or `arm1176jzf_s`
+
+ROOTDIR="$(pwd)"
+
+# Detect ccache
+USE_CCACHE=OFF
+if command -v ccache >/dev/null 2>&1; then
+  echo "ccache detected, enabling..."
+  USE_CCACHE=ON
+fi
+
+TARGET_OS_AND_ABI=${TARGET#*-} # Example: linux-gnu
+
+# Here we map the OS from the target triple to the value that CMake expects.
+TARGET_OS_CMAKE=${TARGET_OS_AND_ABI%-*} # Example: linux
+case $TARGET_OS_CMAKE in
+  macos*) TARGET_OS_CMAKE="Darwin";;
+  freebsd*) TARGET_OS_CMAKE="FreeBSD";;
+  netbsd*) TARGET_OS_CMAKE="NetBSD";;
+  openbsd*) TARGET_OS_CMAKE="OpenBSD";;
+  windows*) TARGET_OS_CMAKE="Windows";;
+  linux*) TARGET_OS_CMAKE="Linux";;
+  native) TARGET_OS_CMAKE="";;
+esac
+
+CMAKE_FLAGS=""
+if [ "$USE_CCACHE" = "ON" ]; then
+  CMAKE_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+fi
+
+# First build the libraries for Zig to link against, as well as native `llvm-tblgen`.
+mkdir -p "$ROOTDIR/out/build-llvm-host"
+cd "$ROOTDIR/out/build-llvm-host"
+cmake "$ROOTDIR/llvm" \
+  $CMAKE_FLAGS \
+  -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/host" \
+  -DCMAKE_PREFIX_PATH="$ROOTDIR/out/host" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_ENABLE_BINDINGS=OFF \
+  -DLLVM_ENABLE_LIBEDIT=OFF \
+  -DLLVM_ENABLE_LIBPFM=OFF \
+  -DLLVM_ENABLE_LIBXML2=OFF \
+  -DLLVM_ENABLE_OCAMLDOC=OFF \
+  -DLLVM_ENABLE_PLUGINS=OFF \
+  -DLLVM_ENABLE_PROJECTS="lld;clang" \
+  -DLLVM_ENABLE_Z3_SOLVER=OFF \
+  -DLLVM_ENABLE_ZSTD=OFF \
+  -DLLVM_INCLUDE_UTILS=OFF \
+  -DLLVM_INCLUDE_TESTS=OFF \
+  -DLLVM_INCLUDE_EXAMPLES=OFF \
+  -DLLVM_INCLUDE_BENCHMARKS=OFF \
+  -DLLVM_INCLUDE_DOCS=OFF \
+  -DLLVM_TOOL_LLVM_LTO2_BUILD=OFF \
+  -DLLVM_TOOL_LLVM_LTO_BUILD=OFF \
+  -DLLVM_TOOL_LTO_BUILD=OFF \
+  -DLLVM_TOOL_REMARKS_SHLIB_BUILD=OFF \
+  -DCLANG_BUILD_TOOLS=OFF \
+  -DCLANG_INCLUDE_DOCS=OFF \
+  -DCLANG_INCLUDE_TESTS=OFF \
+  -DCLANG_TOOL_CLANG_IMPORT_TEST_BUILD=OFF \
+  -DCLANG_TOOL_CLANG_LINKER_WRAPPER_BUILD=OFF \
+  -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
+  -DCLANG_TOOL_LIBCLANG_BUILD=OFF
+cmake --build . --target install

@@ -1,309 +1,209 @@
-name: Build and Deploy on Commit
+name: Build and Deploy
 
 permissions:
   contents: write
+  actions: write
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag, or SHA to build from chemicallang/chemical-bootstrap'
+        required: true
+        default: 'main'
+      release_tag:
+        description: 'Tag to upload assets to (e.g. latest, v1.0.0)'
+        required: true
+        default: 'latest'
 
 jobs:
-  build-windows:
-    name: Build on Windows (${{ matrix.arch }})
+  build:
+    name: Build on ${{ matrix.os-name }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: x64
+          - os-name: Windows
+            os: windows
+            arch: x64
             runner: windows-2025
-          - arch: arm64
+          - os-name: Windows
+            os: windows
+            arch: arm64
             runner: windows-11-arm
+          - os-name: Linux
+            os: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Linux
+            os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os-name: MacOS
+            os: macos
+            arch: x64
+            runner: macos-15-intel
+          - os-name: MacOS
+            os: macos
+            arch: arm64
+            runner: macos-14
+          - os-name: Alpine
+            os: alpine
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Alpine
+            os: alpine
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    container:
+      image: ${{ matrix.os == 'alpine' && 'alpine:3.20' || '' }}
     steps:
-      # ––– Checkout repositories –––
-      - name: Checkout chemical-bootstrap repository
+      - name: Checkout llvm-prebuilt (this repo)
+        uses: actions/checkout@v4
+
+      - name: Checkout chemical-bootstrap
         uses: actions/checkout@v4
         with:
           repository: chemicallang/chemical-bootstrap
           token: ${{ secrets.GITHUB_TOKEN }}
           path: chemical-bootstrap
+          ref: ${{ github.event.inputs.ref }}
 
-      # ––– Setup build environment –––
-      - name: Set up Visual Studio Developer Command Prompt
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git ninja-build ccache
+
+      - name: Install dependencies (Alpine)
+        if: matrix.os == 'alpine'
+        run: |
+          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache
+
+      - name: Install dependencies (MacOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew update
+          brew install cmake ninja git ccache
+
+      - name: Set up Visual Studio (Windows)
+        if: matrix.os == 'windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.arch }}
 
-      # Get the SHA of the chemical-bootstrap repository
-      - name: Get SHA of chemical-bootstrap repository
-        id: get-sha
-        shell: pwsh
-        working-directory: chemical-bootstrap
+      - name: Install sccache (Windows)
+        if: matrix.os == 'windows'
         run: |
-          $sha = (git rev-parse HEAD).Trim()
-          echo "sha=$sha" >> $env:GITHUB_OUTPUT
+          vcpkg install sccache
+          echo "C:\vcpkg\installed\x64-windows\bin" >> $env:GITHUB_PATH
 
-      # Build the chemical-bootstrap project (only if not cached)
+      - name: Setup Cache (ccache/sccache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/Library/Caches/ccache
+            ${{ env.LOCALAPPDATA }}\Mozilla\sccache
+          key: ${{ matrix.os }}-${{ matrix.arch }}-llvm-${{ github.event.inputs.ref }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ matrix.os }}-${{ matrix.arch }}-llvm-${{ github.event.inputs.ref }}-
+
+      - name: Configure ccache/sccache
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" == "linux" ] || [ "${{ matrix.os }}" == "macos" ] || [ "${{ matrix.os }}" == "alpine" ]; then
+            ccache -M 5G
+            ccache -s
+          elif [ "${{ matrix.os }}" == "windows" ]; then
+            echo "SCCACHE_CACHE_SIZE=5G" >> $GITHUB_ENV
+          fi
+
       - name: Build chemical-bootstrap (Windows)
-        working-directory: chemical-bootstrap
-        run: .\build.bat native-windows-gnu native
-
-      - name: Compress release assets
+        if: matrix.os == 'windows'
         shell: pwsh
-        run: |
-          # create zip that contains out-win/ at archive root (not chemical-bootstrap/out-win)
-          Push-Location chemical-bootstrap
-          7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
-          Pop-Location
-
-      # ––– Get information about the latest release –––
-      - name: Get latest release info
-        id: get_latest_release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const releasesResponse = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            
-            const validReleases = releasesResponse.data.filter(release => !release.draft);
-            
-            if (validReleases.length === 0) {
-              throw new Error("No published or pre-releases found.");
-            }
-            
-            const latestRelease = validReleases[0];
-            core.setOutput("tag", latestRelease.tag_name);
-            core.setOutput("id", latestRelease.id);
-
-      # Upload release assets
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.get_latest_release.outputs.tag }}
-          files: |
-            windows-${{ matrix.arch }}.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-linux:
-    name: Build on Linux (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - arch: x64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    steps:
-      # ––– Checkout repositories –––
-      - name: Checkout chemical-bootstrap repository
-        uses: actions/checkout@v4
-        with:
-          repository: chemicallang/chemical-bootstrap
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: chemical-bootstrap
-
-      # ––– Install dependencies –––
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake git
-
-      # Get the SHA of the chemical-bootstrap repository
-      - name: Get SHA of chemical-bootstrap repository
-        id: get-sha
+        id: build-windows
         working-directory: chemical-bootstrap
         run: |
-          SHA=$(git rev-parse HEAD | xargs)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          # Copy ci scripts to working dir
+          cp ../ci/build.bat .
+          
+          $target = if ("${{ matrix.arch }}" -eq "x64") { "x86_64-windows-msvc" } else { "aarch64-windows-msvc" }
+          
+          $timeout = 18000 # 5 hours
+          $startTime = Get-Date
+          $process = Start-Process -FilePath ".\build.bat" -ArgumentList "$target", "native" -PassThru -NoNewWindow
+          
+          while (-not $process.HasExited) {
+              if ((Get-Date) -gt $startTime.AddSeconds($timeout)) {
+                  echo "Build timed out (soft limit), stopping for resume..."
+                  Stop-Process -Id $process.Id -Force
+                  echo "incomplete=true" >> $env:GITHUB_OUTPUT
+                  exit 0
+              }
+              Start-Sleep -Seconds 60
+          }
+          
+          if ($process.ExitCode -ne 0) {
+              echo "Build failed with exit code $($process.ExitCode)"
+              exit $process.ExitCode
+          }
 
-      # Build the chemical-bootstrap project (Linux) (only if not cached)
-      - name: Build chemical-bootstrap
-        working-directory: chemical-bootstrap
-        run: ./build native-linux-gnu native
-
-      # Create a release archive
-      - name: Compress release assets
-        run: tar -czf linux-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
-
-      # ––– Get information about the latest release –––
-      - name: Get latest release info
-        id: get_latest_release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const releasesResponse = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            
-            const validReleases = releasesResponse.data.filter(release => !release.draft);
-            
-            if (validReleases.length === 0) {
-              throw new Error("No published or pre-releases found.");
-            }
-            
-            const latestRelease = validReleases[0];
-            core.setOutput("tag", latestRelease.tag_name);
-            core.setOutput("id", latestRelease.id);
-
-      # Upload release assets
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.get_latest_release.outputs.tag }}
-          files: |
-            linux-${{ matrix.arch }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-alpine:
-    name: Build on Alpine Linux (${{ matrix.arch }})
-    container:
-      image: alpine:3.20
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    steps:
-
-      # ––– Install dependencies –––
-      - name: Install dependencies
-        run: |
-          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip
-
-      # ––– Checkout repositories –––
-      - name: Checkout chemical-bootstrap repository
-        uses: actions/checkout@v4
-        with:
-          repository: chemicallang/chemical-bootstrap
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: chemical-bootstrap
-
-      # Get the SHA of the chemical-bootstrap repository
-      - name: Get SHA of chemical-bootstrap repository
-        id: get-sha
+      - name: Build chemical-bootstrap (Unix)
+        if: matrix.os != 'windows'
+        shell: bash
+        id: build-unix
         working-directory: chemical-bootstrap
         run: |
-          SHA=$(git rev-parse HEAD | xargs)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-
-      # Build the chemical-bootstrap project (only if not cached)
-      - name: Build chemical-bootstrap
-        working-directory: chemical-bootstrap
-        run: |
+          # Copy ci scripts to working dir
+          cp ../ci/build .
           chmod +x build
-          ./build native-linux-gnu native
+          
+          # Use timeout command for 5.5 hours
+          # Alpine might not have timeout command by default in some minimal installs, but we installed build-base and bash
+          timeout 5.5h ./build native-${{ matrix.os == 'alpine' && 'linux' || matrix.os }}-none native || {
+            BUILD_STATUS=$?
+            if [ $BUILD_STATUS -eq 124 ]; then
+              echo "Build timed out (soft limit), stopping for resume..."
+              echo "incomplete=true" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "Build failed with status $BUILD_STATUS"
+              exit $BUILD_STATUS
+            fi
+          }
 
-      # Create a release archive
       - name: Compress release assets
-        run: tar -czf linux-alpine-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+        if: steps.build-windows.outputs.incomplete != 'true' && steps.build-unix.outputs.incomplete != 'true'
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" == "windows" ]; then
+            cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
+          elif [ "${{ matrix.os }}" == "linux" ]; then
+            tar -czf linux-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+          elif [ "${{ matrix.os }}" == "alpine" ]; then
+            tar -czf linux-alpine-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+          else
+            tar -czf macos-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+          fi
 
-      - name: Get latest release info
-        id: get_latest_release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const releasesResponse = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            
-            const validReleases = releasesResponse.data.filter(release => !release.draft);
-            
-            if (validReleases.length === 0) {
-              throw new Error("No published or pre-releases found.");
-            }
-            
-            const latestRelease = validReleases[0];
-            core.setOutput("tag", latestRelease.tag_name);
-            core.setOutput("id", latestRelease.id);
-
-      # Upload release assets
       - name: Upload release assets
+        if: steps.build-windows.outputs.incomplete != 'true' && steps.build-unix.outputs.incomplete != 'true'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.get_latest_release.outputs.tag }}
+          tag_name: ${{ github.event.inputs.release_tag }}
           files: |
-            linux-alpine-${{ matrix.arch }}.tar.gz
+            *.zip
+            *.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-macos:
-    name: Build on macOS (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - arch: x64
-            runner: macos-15-intel
-          - arch: arm64
-            runner: macos-26
-    steps:
-      # ––– Install dependencies –––
-      - name: Install Dependencies
-        run: |
-          brew update
-          brew install cmake ninja git
-
-      # ––– Checkout repositories –––
-      - name: Checkout chemical-bootstrap repository
-        uses: actions/checkout@v4
-        with:
-          repository: chemicallang/chemical-bootstrap
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: chemical-bootstrap
-
-      # Get the SHA of the chemical-bootstrap repository
-      - name: Get SHA of chemical-bootstrap repository
-        id: get-sha
-        working-directory: chemical-bootstrap
-        run: |
-          SHA=$(git rev-parse HEAD | xargs)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-
-      # Build chemical-bootstrap project (macOS) (only if not cached)
-      - name: Build chemical-bootstrap
-        working-directory: chemical-bootstrap
-        run: |
-          chmod +x build
-          ./build native-macos-none native
-
-      # Create a release archive
-      - name: Compress release assets
-        run: tar -czf macos-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
-
-      # Get latest release info
-      - name: Get latest release info
-        id: get_latest_release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const releasesResponse = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            const validReleases = releasesResponse.data.filter(release => !release.draft);
-            if (validReleases.length === 0) {
-              throw new Error("No published or pre-releases found.");
-            }
-            const latestRelease = validReleases[0];
-            core.setOutput("tag", latestRelease.tag_name);
-            core.setOutput("id", latestRelease.id);
-
-      # Upload assets
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.get_latest_release.outputs.tag }}
-          files: |
-            macos-${{ matrix.arch }}.tar.gz
+      - name: Re-trigger workflow if incomplete
+        if: steps.build-windows.outputs.incomplete == 'true' || steps.build-unix.outputs.incomplete == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run "Build and Deploy" \
+            -f ref="${{ github.event.inputs.ref }}" \
+            -f release_tag="${{ github.event.inputs.release_tag }}"
