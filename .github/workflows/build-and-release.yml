@@ -74,18 +74,18 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git ninja-build ccache
+          sudo apt-get install -y build-essential cmake git ninja-build ccache coreutils
 
       - name: Install dependencies (Alpine)
         if: matrix.os == 'alpine'
         run: |
-          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache
+          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache coreutils
 
       - name: Install dependencies (MacOS)
         if: matrix.os == 'macos'
         run: |
           brew update
-          brew install cmake ninja git ccache
+          brew install cmake ninja git ccache coreutils
 
       - name: Set up Visual Studio (Windows)
         if: matrix.os == 'windows'
@@ -95,9 +95,7 @@ jobs:
 
       - name: Install sccache (Windows)
         if: matrix.os == 'windows'
-        run: |
-          vcpkg install sccache
-          echo "C:\vcpkg\installed\x64-windows\bin" >> $env:GITHUB_PATH
+        uses: mozilla/sccache-action@v0.0.6
 
       - name: Setup Cache (ccache/sccache)
         uses: actions/cache@v4
@@ -159,10 +157,16 @@ jobs:
           # Copy ci scripts to working dir
           cp ../ci/build .
           chmod +x build
+          # Fix line endings (CRLF -> LF)
+          sed -i 's/\r$//' build
+          
+          TIMEOUT_CMD="timeout"
+          if [[ "${{ matrix.os }}" == "macos" ]]; then
+            TIMEOUT_CMD="gtimeout"
+          fi
           
           # Use timeout command for 5.5 hours
-          # Alpine might not have timeout command by default in some minimal installs, but we installed build-base and bash
-          timeout 5.5h ./build native-${{ matrix.os == 'alpine' && 'linux' || matrix.os }}-none native || {
+          $TIMEOUT_CMD 5.5h ./build native-${{ matrix.os == 'alpine' && 'linux' || matrix.os }}-none native || {
             BUILD_STATUS=$?
             if [ $BUILD_STATUS -eq 124 ]; then
               echo "Build timed out (soft limit), stopping for resume..."
