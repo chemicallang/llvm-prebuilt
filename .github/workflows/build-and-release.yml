@@ -157,8 +157,9 @@ jobs:
           # Copy ci scripts to working dir
           cp ../ci/build .
           chmod +x build
-          # Fix line endings (CRLF -> LF)
-          sed -i 's/\r$//' build
+          # Fix line endings (CRLF -> LF) portably
+          tr -d '\r' < build > build.tmp && mv build.tmp build
+          chmod +x build
           
           TIMEOUT_CMD="timeout"
           if [[ "${{ matrix.os }}" == "macos" ]]; then
