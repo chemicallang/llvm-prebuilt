@@ -58,6 +58,8 @@ jobs:
             runner: ubuntu-24.04-arm
     container:
       image: ${{ matrix.os == 'alpine' && 'alpine:3.20' || '' }}
+    outputs:
+      incomplete: ${{ steps.check-status.outputs.incomplete }}
     steps:
       - name: Checkout llvm-prebuilt (this repo)
         uses: actions/checkout@v4
@@ -179,8 +181,18 @@ jobs:
             fi
           }
 
+      - name: Check build status
+        id: check-status
+        shell: bash
+        run: |
+          if [ "${{ steps.build-windows.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-unix.outputs.incomplete }}" == "true" ]; then
+            echo "incomplete=true" >> $GITHUB_OUTPUT
+          else
+            echo "incomplete=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Compress release assets
-        if: steps.build-windows.outputs.incomplete != 'true' && steps.build-unix.outputs.incomplete != 'true'
+        if: steps.check-status.outputs.incomplete != 'true'
         shell: bash
         run: |
           if [ "${{ matrix.os }}" == "windows" ]; then
@@ -194,7 +206,7 @@ jobs:
           fi
 
       - name: Upload release assets
-        if: steps.build-windows.outputs.incomplete != 'true' && steps.build-unix.outputs.incomplete != 'true'
+        if: steps.check-status.outputs.incomplete != 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
@@ -204,8 +216,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Re-trigger workflow if incomplete
-        if: steps.build-windows.outputs.incomplete == 'true' || steps.build-unix.outputs.incomplete == 'true'
+  retrigger:
+    name: Re-trigger Build if Needed
+    needs: build
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if any job was incomplete
+        id: check
+        shell: bash
+        run: |
+          # needs.build.outputs.incomplete will be a JSON object containing outputs for all matrix combinations
+          # We need to check if any of them is "true"
+          INCOMPLETE_JSON='${{ toJson(needs.build.outputs) }}'
+          echo "Outputs: $INCOMPLETE_JSON"
+          if echo "$INCOMPLETE_JSON" | grep -q '"true"'; then
+            echo "found_incomplete=true" >> $GITHUB_OUTPUT
+          else
+            echo "found_incomplete=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Re-trigger workflow
+        if: steps.check.outputs.found_incomplete == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
