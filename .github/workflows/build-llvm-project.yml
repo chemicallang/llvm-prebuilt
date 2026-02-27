@@ -1,0 +1,254 @@
+name: Build LLVM Project
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      llvm_ref:
+        description: 'Branch, tag, or SHA to build from llvm/llvm-project'
+        required: true
+        default: 'main'
+      release_tag:
+        description: 'Tag to upload assets to (e.g. latest, v1.0.0)'
+        required: true
+        default: 'latest'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os-name }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os-name: Windows
+            os: windows
+            arch: x64
+            runner: windows-2025
+          - os-name: Windows
+            os: windows
+            arch: arm64
+            runner: windows-11-arm
+          - os-name: Linux
+            os: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Linux
+            os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os-name: MacOS
+            os: macos
+            arch: x64
+            runner: macos-15-intel
+          - os-name: MacOS
+            os: macos
+            arch: arm64
+            runner: macos-14
+          - os-name: Alpine
+            os: alpine
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Alpine
+            os: alpine
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    container:
+      image: ${{ matrix.os == 'alpine' && 'alpine:3.20' || '' }}
+    outputs:
+      incomplete: ${{ steps.check-status.outputs.incomplete }}
+    steps:
+      - name: Checkout llvm-prebuilt (this repo)
+        uses: actions/checkout@v4
+
+      - name: Checkout llvm-project
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          path: llvm-project
+          ref: ${{ github.event.inputs.llvm_ref }}
+
+      - name: Prepare Workspace structure
+        shell: bash
+        run: |
+          mkdir -p chemical-bootstrap
+          mv llvm-project/llvm chemical-bootstrap/
+          mv llvm-project/clang chemical-bootstrap/
+          mv llvm-project/lld chemical-bootstrap/
+          mv llvm-project/cmake chemical-bootstrap/
+          # Ensure directories exist for scripts
+          mkdir -p chemical-bootstrap/third-party
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git ninja-build ccache coreutils
+
+      - name: Install dependencies (Alpine)
+        if: matrix.os == 'alpine'
+        run: |
+          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache coreutils
+
+      - name: Install dependencies (MacOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew update
+          brew install cmake ninja git ccache coreutils
+
+      - name: Set up Visual Studio (Windows)
+        if: matrix.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Install sccache (Windows)
+        if: matrix.os == 'windows'
+        uses: mozilla/sccache-action@v0.0.6
+
+      - name: Setup Cache (ccache/sccache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/Library/Caches/ccache
+            ${{ env.LOCALAPPDATA }}\Mozilla\sccache
+          key: ${{ matrix.os }}-${{ matrix.arch }}-llvm-project-${{ github.event.inputs.llvm_ref }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ matrix.os }}-${{ matrix.arch }}-llvm-project-${{ github.event.inputs.llvm_ref }}-
+
+      - name: Configure ccache/sccache
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" == "linux" ] || [ "${{ matrix.os }}" == "macos" ] || [ "${{ matrix.os }}" == "alpine" ]; then
+            ccache -M 5G
+            ccache -s
+          elif [ "${{ matrix.os }}" == "windows" ]; then
+            echo "SCCACHE_CACHE_SIZE=5G" >> $GITHUB_ENV
+          fi
+
+      - name: Build llvm-project (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        id: build-windows
+        working-directory: chemical-bootstrap
+        run: |
+          # Copy ci scripts to working dir
+          cp ../ci/build.bat .
+          
+          $target = if ("${{ matrix.arch }}" -eq "x64") { "x86_64-windows-msvc" } else { "aarch64-windows-msvc" }
+          
+          $timeout = 18000 # 5 hours
+          $startTime = Get-Date
+          $process = Start-Process -FilePath ".\build.bat" -ArgumentList "$target", "native" -PassThru -NoNewWindow
+          
+          while (-not $process.HasExited) {
+              if ((Get-Date) -gt $startTime.AddSeconds($timeout)) {
+                  echo "Build timed out (soft limit), stopping for resume..."
+                  Stop-Process -Id $process.Id -Force
+                  echo "incomplete=true" >> $env:GITHUB_OUTPUT
+                  exit 0
+              }
+              Start-Sleep -Seconds 60
+          }
+          
+          if ($process.ExitCode -ne 0) {
+              echo "Build failed with exit code $($process.ExitCode)"
+              exit $process.ExitCode
+          }
+
+      - name: Build llvm-project (Unix)
+        if: matrix.os != 'windows'
+        shell: bash
+        id: build-unix
+        working-directory: chemical-bootstrap
+        run: |
+          # Copy ci scripts to working dir
+          cp ../ci/build .
+          chmod +x build
+          # Fix line endings (CRLF -> LF) portably
+          tr -d '\r' < build > build.tmp && mv build.tmp build
+          chmod +x build
+          
+          TIMEOUT_CMD="timeout"
+          if [[ "${{ matrix.os }}" == "macos" ]]; then
+            TIMEOUT_CMD="gtimeout"
+          fi
+          
+          # Use timeout command for 5.5 hours
+          $TIMEOUT_CMD 5.5h ./build native-${{ matrix.os == 'alpine' && 'linux' || matrix.os }}-none native || {
+            BUILD_STATUS=$?
+            if [ $BUILD_STATUS -eq 124 ]; then
+              echo "Build timed out (soft limit), stopping for resume..."
+              echo "incomplete=true" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "Build failed with status $BUILD_STATUS"
+              exit $BUILD_STATUS
+            fi
+          }
+
+      - name: Check build status
+        id: check-status
+        shell: bash
+        run: |
+          if [ "${{ steps.build-windows.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-unix.outputs.incomplete }}" == "true" ]; then
+            echo "incomplete=true" >> $GITHUB_OUTPUT
+          else
+            echo "incomplete=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Compress release assets
+        if: steps.check-status.outputs.incomplete != 'true'
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" == "windows" ]; then
+            cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
+          elif [ "${{ matrix.os }}" == "linux" ]; then
+            tar -czf linux-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+          elif [ "${{ matrix.os }}" == "alpine" ]; then
+            tar -czf linux-alpine-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+          else
+            tar -czf macos-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
+          fi
+
+      - name: Upload release assets
+        if: steps.check-status.outputs.incomplete != 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          files: |
+            *.zip
+            *.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  retrigger:
+    name: Re-trigger Build if Needed
+    needs: build
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if any job was incomplete
+        id: check
+        shell: bash
+        run: |
+          INCOMPLETE_JSON='${{ toJson(needs.build.outputs) }}'
+          echo "Outputs: $INCOMPLETE_JSON"
+          if echo "$INCOMPLETE_JSON" | grep -q '"true"'; then
+            echo "found_incomplete=true" >> $GITHUB_OUTPUT
+          else
+            echo "found_incomplete=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Re-trigger workflow
+        if: steps.check.outputs.found_incomplete == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run "Build LLVM Project" \
+            -f llvm_ref="${{ github.event.inputs.llvm_ref }}" \
+            -f release_tag="${{ github.event.inputs.release_tag }}"
