@@ -225,12 +225,14 @@ jobs:
       - name: Check if any job was incomplete
         id: check
         shell: bash
+        env:
+          # Using an env var is safer than direct interpolation in scripts
+          BUILD_OUTPUTS: ${{ toJson(needs.build.outputs) }}
         run: |
-          # needs.build.outputs.incomplete will be a JSON object containing outputs for all matrix combinations
-          # We need to check if any of them is "true"
-          INCOMPLETE_JSON='${{ toJson(needs.build.outputs) }}'
-          echo "Outputs: $INCOMPLETE_JSON"
-          if echo "$INCOMPLETE_JSON" | grep -q '"true"'; then
+          echo "Processing outputs..."
+          # Since build is a matrix job, BUILD_OUTPUTS contains a map of all results.
+          # We check if the string "true" exists anywhere in that JSON map.
+          if echo "$BUILD_OUTPUTS" | grep -q '"true"'; then
             echo "found_incomplete=true" >> $GITHUB_OUTPUT
           else
             echo "found_incomplete=false" >> $GITHUB_OUTPUT
@@ -241,6 +243,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run "Build and Deploy" \
+          gh workflow run "${{ github.workflow }}" \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
             -f ref="${{ github.event.inputs.ref }}" \
             -f release_tag="${{ github.event.inputs.release_tag }}"
+
+            
