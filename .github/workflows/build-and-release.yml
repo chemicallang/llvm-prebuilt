@@ -10,7 +10,7 @@ on:
       ref:
         description: 'Branch, tag, or SHA to build from chemicallang/chemical-bootstrap'
         required: true
-        default: 'main'
+        default: 'master'
       release_tag:
         description: 'Tag to upload assets to (e.g. latest, v1.0.0)'
         required: true
