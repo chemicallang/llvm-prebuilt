@@ -81,7 +81,9 @@ jobs:
       - name: Install dependencies (Alpine)
         if: matrix.os == 'alpine'
         run: |
-          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache coreutils
+          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache coreutils tar gzip
+          # Replace BusyBox tar with GNU tar so actions/cache post-job cleanup works (--posix flag)
+          ln -sf /usr/bin/tar /bin/tar
 
       - name: Install dependencies (MacOS)
         if: matrix.os == 'macos'
