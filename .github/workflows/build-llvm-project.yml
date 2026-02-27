@@ -71,6 +71,26 @@ jobs:
           path: llvm-project
           ref: ${{ github.event.inputs.llvm_ref }}
 
+      # --- MOVED: Install dependencies BEFORE anything needs bash ---
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git ninja-build ccache coreutils
+
+      - name: Install dependencies (Alpine)
+        if: matrix.os == 'alpine'
+        shell: sh # <-- ADDED: Force standard 'sh' to install bash
+        run: |
+          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache coreutils
+
+      - name: Install dependencies (MacOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew update
+          brew install cmake ninja git ccache coreutils
+      # --------------------------------------------------------------
+
       - name: Prepare Workspace structure
         shell: bash
         run: |
@@ -81,23 +101,6 @@ jobs:
           mv llvm-project/cmake chemical-bootstrap/
           # Ensure directories exist for scripts
           mkdir -p chemical-bootstrap/third-party
-
-      - name: Install dependencies (Linux)
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake git ninja-build ccache coreutils
-
-      - name: Install dependencies (Alpine)
-        if: matrix.os == 'alpine'
-        run: |
-          apk add --no-cache build-base cmake ninja git bash python3 curl musl-dev linux-headers zip unzip ccache coreutils
-
-      - name: Install dependencies (MacOS)
-        if: matrix.os == 'macos'
-        run: |
-          brew update
-          brew install cmake ninja git ccache coreutils
 
       - name: Set up Visual Studio (Windows)
         if: matrix.os == 'windows'
