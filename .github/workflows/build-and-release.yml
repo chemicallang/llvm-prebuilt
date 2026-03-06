@@ -24,35 +24,42 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os-name: Windows
+          - os-name: Windows (MSVC)
             os: windows
             arch: x64
             runner: windows-2025
-          - os-name: Windows
+            toolchain: msvc
+          - os-name: Windows (MinGW)
+            os: windows
+            arch: x64
+            runner: windows-2025
+            toolchain: mingw
+          - os-name: Windows (ARM64)
             os: windows
             arch: arm64
             runner: windows-11-arm
-          - os-name: Linux
+            toolchain: msvc
+          - os-name: Linux (x64)
             os: linux
             arch: x64
             runner: ubuntu-24.04
-          - os-name: Linux
+          - os-name: Linux (ARM64)
             os: linux
             arch: arm64
             runner: ubuntu-24.04-arm
-          - os-name: MacOS
+          - os-name: MacOS (x64)
             os: macos
             arch: x64
             runner: macos-15-intel
-          - os-name: MacOS
+          - os-name: MacOS (ARM64)
             os: macos
             arch: arm64
             runner: macos-14
-          - os-name: Alpine
+          - os-name: Alpine (x64)
             os: alpine
             arch: x64
             runner: ubuntu-24.04
-          - os-name: Alpine
+          - os-name: Alpine (ARM64)
             os: alpine
             arch: arm64
             runner: ubuntu-24.04-arm
@@ -61,6 +68,14 @@ jobs:
     outputs:
       incomplete: ${{ steps.check-status.outputs.incomplete }}
     steps:
+      - name: Sanity check inputs
+        shell: bash
+        run: |
+          if [ -z "${{ github.event.inputs.ref }}" ] || [ -z "${{ github.event.inputs.release_tag }}" ]; then
+            echo "Error: Missing required inputs 'ref' or 'release_tag'"
+            exit 1
+          fi
+
       - name: Checkout llvm-prebuilt (this repo)
         uses: actions/checkout@v4
 
@@ -89,14 +104,29 @@ jobs:
           brew update
           brew install cmake ninja git ccache coreutils
 
-      - name: Set up Visual Studio (Windows)
-        if: matrix.os == 'windows'
+      - name: Set up Visual Studio (Windows MSVC)
+        if: matrix.os == 'windows' && matrix.toolchain == 'msvc'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.arch }}
 
-      - name: Install sccache (Windows)
-        if: matrix.os == 'windows'
+      - name: Set up MSYS2 (Windows MinGW)
+        if: matrix.os == 'windows' && matrix.toolchain == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-ccache
+            git
+            zip
+            unzip
+
+      - name: Install sccache (Windows MSVC)
+        if: matrix.os == 'windows' && matrix.toolchain == 'msvc'
         uses: mozilla/sccache-action@v0.0.6
 
       - name: Setup Cache (ccache/sccache)
@@ -116,12 +146,15 @@ jobs:
           if [ "${{ matrix.os }}" == "linux" ] || [ "${{ matrix.os }}" == "macos" ] || [ "${{ matrix.os }}" == "alpine" ]; then
             ccache -M 5G
             ccache -s
-          elif [ "${{ matrix.os }}" == "windows" ]; then
+          elif [ "${{ matrix.os }}" == "windows" ] && [ "${{ matrix.toolchain }}" == "msvc" ]; then
             echo "SCCACHE_CACHE_SIZE=5G" >> $GITHUB_ENV
+          elif [ "${{ matrix.os }}" == "windows" ] && [ "${{ matrix.toolchain }}" == "mingw" ]; then
+            # ccache is handled by the build script if detected, but we can pre-config
+            echo "CCACHE_DIR=~/.cache/ccache" >> $GITHUB_ENV
           fi
 
-      - name: Build chemical-bootstrap (Windows)
-        if: matrix.os == 'windows'
+      - name: Build chemical-bootstrap (Windows MSVC)
+        if: matrix.os == 'windows' && matrix.toolchain == 'msvc'
         shell: pwsh
         id: build-windows
         working-directory: chemical-bootstrap
@@ -148,6 +181,32 @@ jobs:
           if ($process.ExitCode -ne 0) {
               echo "Build failed with exit code $($process.ExitCode)"
               exit $process.ExitCode
+          }
+
+      - name: Build chemical-bootstrap (Windows MinGW)
+        if: matrix.os == 'windows' && matrix.toolchain == 'mingw'
+        shell: msys2 {0}
+        id: build-mingw
+        working-directory: chemical-bootstrap
+        run: |
+          # Copy ci scripts to working dir
+          cp ../ci/build .
+          chmod +x build
+          # Fix line endings (CRLF -> LF)
+          tr -d '\r' < build > build.tmp && mv build.tmp build
+          chmod +x build
+          
+          # Use timeout command for 5.5 hours
+          timeout 5.5h ./build x86_64-windows-gnu native || {
+            BUILD_STATUS=$?
+            if [ $BUILD_STATUS -eq 124 ]; then
+              echo "Build timed out (soft limit), stopping for resume..."
+              echo "incomplete=true" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "Build failed with status $BUILD_STATUS"
+              exit $BUILD_STATUS
+            fi
           }
 
       - name: Build chemical-bootstrap (Unix)
@@ -185,7 +244,7 @@ jobs:
         id: check-status
         shell: bash
         run: |
-          if [ "${{ steps.build-windows.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-unix.outputs.incomplete }}" == "true" ]; then
+          if [ "${{ steps.build-windows.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-unix.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-mingw.outputs.incomplete }}" == "true" ]; then
             echo "incomplete=true" >> $GITHUB_OUTPUT
           else
             echo "incomplete=false" >> $GITHUB_OUTPUT
@@ -196,7 +255,11 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" == "windows" ]; then
-            cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
+            if [ "${{ matrix.toolchain }}" == "mingw" ]; then
+              cd chemical-bootstrap && 7z a -tzip ../windows-mingw-${{ matrix.arch }}.zip out\*
+            else
+              cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
+            fi
           elif [ "${{ matrix.os }}" == "linux" ]; then
             tar -czf linux-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out
           elif [ "${{ matrix.os }}" == "alpine" ]; then

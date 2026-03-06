@@ -34,10 +34,11 @@ if [ "$USE_CCACHE" = "ON" ]; then
   CMAKE_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 fi
 
-# First build the libraries for Zig to link against, as well as native `llvm-tblgen`.
+# First build the libraries, as well as native `llvm-tblgen`.
 mkdir -p "$ROOTDIR/out/build-llvm-host"
 cd "$ROOTDIR/out/build-llvm-host"
 cmake "$ROOTDIR/llvm" \
+  -G "Ninja" \
   $CMAKE_FLAGS \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/host" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/host" \
