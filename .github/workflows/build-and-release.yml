@@ -68,14 +68,6 @@ jobs:
     outputs:
       incomplete: ${{ steps.check-status.outputs.incomplete }}
     steps:
-      - name: Sanity check inputs
-        shell: bash
-        run: |
-          if [ -z "${{ github.event.inputs.ref }}" ] || [ -z "${{ github.event.inputs.release_tag }}" ]; then
-            echo "Error: Missing required inputs 'ref' or 'release_tag'"
-            exit 1
-          fi
-
       - name: Checkout llvm-prebuilt (this repo)
         uses: actions/checkout@v4
 
