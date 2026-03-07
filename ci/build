@@ -35,8 +35,8 @@ if [ "$USE_CCACHE" = "ON" ]; then
 fi
 
 # First build the libraries, as well as native `llvm-tblgen`.
-mkdir -p "$ROOTDIR/out/build-llvm-host"
-cd "$ROOTDIR/out/build-llvm-host"
+mkdir -p "$ROOTDIR/build-llvm-host"
+cd "$ROOTDIR/build-llvm-host"
 cmake "$ROOTDIR/llvm" \
   -G "Ninja" \
   $CMAKE_FLAGS \

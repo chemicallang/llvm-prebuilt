@@ -50,8 +50,8 @@ if %ERRORLEVEL% equ 0 (
 pushd %ROOTDIR%
 
 rem Build the libraries for Zig to link against, as well as native `llvm-tblgen` using msvc
-mkdir "%ROOTDIR%\%OUTDIR%\build-llvm-host"
-cd "%ROOTDIR%\%OUTDIR%\build-llvm-host"
+mkdir "%ROOTDIR%\build-llvm-host"
+cd "%ROOTDIR%\build-llvm-host"
 cmake "%ROOTDIR%/llvm" ^
   -G "Ninja" ^
   %CMAKE_LAUNCHER% ^
