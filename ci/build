@@ -40,6 +40,7 @@ if echo "$TARGET" | grep -q "windows-gnu"; then
     echo "lld detected, using it as the linker..."
     CMAKE_FLAGS="$CMAKE_FLAGS -DLLVM_USE_LINKER=lld"
   fi
+  CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_EXE_LINKER_FLAGS=-static -DCMAKE_SHARED_LINKER_FLAGS=-static"
 fi
 
 # First build the libraries, as well as native `llvm-tblgen`.

@@ -264,7 +264,7 @@ jobs:
             if [ "${{ matrix.toolchain }}" == "mingw" ]; then
               cd chemical-bootstrap && 7z a -tzip ../windows-mingw-${{ matrix.arch }}.zip out\*
             else
-              cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out-win\*
+              cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out\*
             fi
           elif [ "${{ matrix.os }}" == "linux" ]; then
             tar -czf linux-${{ matrix.arch }}.tar.gz -C chemical-bootstrap out

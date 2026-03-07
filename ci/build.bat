@@ -32,8 +32,8 @@ FOR /F "tokens=2,3 delims=-" %%i IN ("%TARGET%") DO (
   set TARGET_ABI=%%j
 )
 
-set OUTDIR=out-win
-if "%VSCMD_ARG_HOST_ARCH%"=="x86" set OUTDIR=out-win-x86
+set OUTDIR=out
+if "%VSCMD_ARG_HOST_ARCH%"=="x86" set OUTDIR=out-x86
 
 set ROOTDIR=%cd%
 set "ROOTDIR_CMAKE=%ROOTDIR:\=/%"
