@@ -34,6 +34,14 @@ if [ "$USE_CCACHE" = "ON" ]; then
   CMAKE_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 fi
 
+if echo "$TARGET" | grep -q "windows-gnu"; then
+  # Check if lld is available (it should be in CLANG64)
+  if command -v ld.lld >/dev/null 2>&1; then
+    echo "lld detected, using it as the linker..."
+    CMAKE_FLAGS="$CMAKE_FLAGS -DLLVM_USE_LINKER=lld"
+  fi
+fi
+
 # First build the libraries, as well as native `llvm-tblgen`.
 mkdir -p "$ROOTDIR/build-llvm-host"
 cd "$ROOTDIR/build-llvm-host"

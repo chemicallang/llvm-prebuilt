@@ -29,11 +29,20 @@ jobs:
             arch: x64
             runner: windows-2025
             toolchain: msvc
-          - os-name: Windows (MinGW)
+          - os-name: Windows (MinGW x64)
             os: windows
             arch: x64
             runner: windows-2025
             toolchain: mingw
+            msystem: CLANG64
+            msys-env: clang-x86_64
+          - os-name: Windows (MinGW ARM64)
+            os: windows
+            arch: arm64
+            runner: windows-11-arm
+            toolchain: mingw
+            msystem: CLANGARM64
+            msys-env: clang-aarch64
           - os-name: Windows (ARM64)
             os: windows
             arch: arm64
@@ -111,13 +120,13 @@ jobs:
         if: matrix.os == 'windows' && matrix.toolchain == 'mingw'
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-ccache
+            mingw-w64-${{ matrix.msys-env }}-toolchain
+            mingw-w64-${{ matrix.msys-env }}-cmake
+            mingw-w64-${{ matrix.msys-env }}-ninja
+            mingw-w64-${{ matrix.msys-env }}-ccache
             git
             zip
             unzip
@@ -193,7 +202,8 @@ jobs:
           chmod +x build
           
           # Use timeout command for 5.5 hours
-          timeout 5.5h ./build x86_64-windows-gnu native || {
+          TARGET_TRIPLE="${{ matrix.arch == 'arm64' && 'aarch64-windows-gnu' || 'x86_64-windows-gnu' }}"
+          timeout 5.5h ./build "$TARGET_TRIPLE" native || {
             BUILD_STATUS=$?
             if [ $BUILD_STATUS -eq 124 ]; then
               echo "Build timed out (soft limit), stopping for resume..."
