@@ -18,7 +18,7 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os-name }} (${{ matrix.arch }})
+    name: Build on ${{ matrix.os-name }} (${{ matrix.arch }}${{ matrix.crt && format(' {0}', matrix.crt) || '' }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -34,6 +34,7 @@ jobs:
             arch: x64
             runner: windows-2025
             toolchain: mingw
+            crt: ucrt
             msystem: CLANG64
             msys-env: clang-x86_64
           - os-name: Windows (MinGW)
@@ -41,8 +42,15 @@ jobs:
             arch: arm64
             runner: windows-11-arm
             toolchain: mingw
+            crt: ucrt
             msystem: CLANGARM64
             msys-env: clang-aarch64
+          - os-name: Windows (MinGW)
+            os: windows
+            arch: x64
+            runner: windows-2025
+            toolchain: mingw-msvcrt
+            crt: msvcrt
           - os-name: Windows (MSVC)
             os: windows
             arch: arm64
@@ -131,6 +139,18 @@ jobs:
             zip
             unzip
 
+      - name: Set up llvm-mingw MSVCRT toolchain
+        if: matrix.toolchain == 'mingw-msvcrt'
+        shell: bash
+        run: |
+          LLVM_MINGW_VER="20260224"
+          LLVM_MINGW_NAME="llvm-mingw-${LLVM_MINGW_VER}-msvcrt-x86_64"
+          curl -L -o llvm-mingw.zip "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/${LLVM_MINGW_NAME}.zip"
+          7z x llvm-mingw.zip -o"$HOME"
+          echo "$HOME/${LLVM_MINGW_NAME}/bin" >> $GITHUB_PATH
+          # Install ninja and cmake via choco (not using MSYS2 for this variant)
+          choco install ninja cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
       - name: Install sccache (Windows MSVC)
         if: matrix.os == 'windows' && matrix.toolchain == 'msvc'
         uses: mozilla/sccache-action@v0.0.6
@@ -142,9 +162,9 @@ jobs:
             ~/.cache/ccache
             ~/Library/Caches/ccache
             ${{ env.LOCALAPPDATA }}\Mozilla\sccache
-          key: ${{ matrix.os }}-${{ matrix.arch }}-llvm-project-${{ github.event.inputs.llvm_ref }}-${{ github.run_id }}
+          key: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.toolchain }}-llvm-project-${{ github.event.inputs.llvm_ref }}-${{ github.run_id }}
           restore-keys: |
-            ${{ matrix.os }}-${{ matrix.arch }}-llvm-project-${{ github.event.inputs.llvm_ref }}-
+            ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.toolchain }}-llvm-project-${{ github.event.inputs.llvm_ref }}-
 
       - name: Configure ccache/sccache
         shell: bash
@@ -154,7 +174,7 @@ jobs:
             ccache -s
           elif [ "${{ matrix.os }}" == "windows" ] && [ "${{ matrix.toolchain }}" == "msvc" ]; then
             echo "SCCACHE_CACHE_SIZE=5G" >> $GITHUB_ENV
-          elif [ "${{ matrix.os }}" == "windows" ] && [ "${{ matrix.toolchain }}" == "mingw" ]; then
+          elif [ "${{ matrix.os }}" == "windows" ] && [ "${{ matrix.toolchain }}" == "mingw" -o "${{ matrix.toolchain }}" == "mingw-msvcrt" ]; then
             echo "CCACHE_DIR=~/.cache/ccache" >> $GITHUB_ENV
           fi
 
@@ -215,6 +235,32 @@ jobs:
             fi
           }
 
+      - name: Build llvm-project (Windows MinGW-MSVCRT)
+        if: matrix.toolchain == 'mingw-msvcrt'
+        shell: bash
+        id: build-mingw-msvcrt
+        working-directory: chemical-bootstrap
+        run: |
+          # Copy ci scripts to working dir
+          cp ../ci/build .
+          chmod +x build
+          # Fix line endings (CRLF -> LF)
+          tr -d '\r' < build > build.tmp && mv build.tmp build
+          chmod +x build
+          
+          # Use timeout command for 5.5 hours
+          timeout 5.5h ./build "x86_64-windows-gnu" native || {
+            BUILD_STATUS=$?
+            if [ $BUILD_STATUS -eq 124 ]; then
+              echo "Build timed out (soft limit), stopping for resume..."
+              echo "incomplete=true" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "Build failed with status $BUILD_STATUS"
+              exit $BUILD_STATUS
+            fi
+          }
+
       - name: Build llvm-project (Unix)
         if: matrix.os != 'windows'
         shell: bash
@@ -250,7 +296,7 @@ jobs:
         id: check-status
         shell: bash
         run: |
-          if [ "${{ steps.build-windows.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-unix.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-mingw.outputs.incomplete }}" == "true" ]; then
+          if [ "${{ steps.build-windows.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-unix.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-mingw.outputs.incomplete }}" == "true" ] || [ "${{ steps.build-mingw-msvcrt.outputs.incomplete }}" == "true" ]; then
             echo "incomplete=true" >> $GITHUB_OUTPUT
           else
             echo "incomplete=false" >> $GITHUB_OUTPUT
@@ -262,7 +308,9 @@ jobs:
         run: |
           if [ "${{ matrix.os }}" == "windows" ]; then
             if [ "${{ matrix.toolchain }}" == "mingw" ]; then
-              cd chemical-bootstrap && 7z a -tzip ../windows-mingw-${{ matrix.arch }}.zip out\*
+              cd chemical-bootstrap && 7z a -tzip ../windows-mingw-ucrt-${{ matrix.arch }}.zip out\*
+            elif [ "${{ matrix.toolchain }}" == "mingw-msvcrt" ]; then
+              cd chemical-bootstrap && 7z a -tzip ../windows-mingw-msvcrt-${{ matrix.arch }}.zip out\*
             else
               cd chemical-bootstrap && 7z a -tzip ../windows-${{ matrix.arch }}.zip out\*
             fi
