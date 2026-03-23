@@ -151,6 +151,8 @@ jobs:
           LLVM_MINGW_NAME="llvm-mingw-${LLVM_MINGW_VER}-msvcrt-x86_64"
           curl -L -o llvm-mingw.zip "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/${LLVM_MINGW_NAME}.zip"
           7z x llvm-mingw.zip -o"$HOME"
+          # Remove otherwise upload step will pick this wrongly
+          rm llvm-mingw.zip
           echo "$HOME/${LLVM_MINGW_NAME}/bin" >> $GITHUB_PATH
           # Install ninja and cmake via choco (not using MSYS2 for this variant)
           choco install ninja cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
