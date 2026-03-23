@@ -68,6 +68,10 @@ jobs:
     outputs:
       incomplete: ${{ steps.check-status.outputs.incomplete }}
     steps:
+      - name: Enable JavaScript actions in Alpine containers
+        if: matrix.os == 'alpine'
+        uses: laverdet/alpine-arm64@v1
+
       - name: Checkout llvm-prebuilt (this repo)
         uses: actions/checkout@v4
 
@@ -304,4 +308,3 @@ jobs:
             -f ref="${{ github.event.inputs.ref }}" \
             -f release_tag="${{ github.event.inputs.release_tag }}"
 
-            
