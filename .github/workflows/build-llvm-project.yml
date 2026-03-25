@@ -18,7 +18,7 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.build_type }} Build on ${{ matrix.config.os-name }} (${{ matrix.config.arch }}${{ matrix.config.crt && format(' {0}', matrix.config.crt) || '' }})
+    name: ${{ matrix.config.os-name }} (${{ matrix.config.arch }}${{ matrix.config.crt && format(' {0}', matrix.config.crt) || '' }}) (${{ matrix.build_type }})
     runs-on: ${{ matrix.config.runner }}
     env:
       BUILD_TYPE: ${{ matrix.build_type }}
