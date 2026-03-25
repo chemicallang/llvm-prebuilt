@@ -53,9 +53,13 @@ pushd %ROOTDIR%
 rem Build the libraries for Zig to link against, as well as native `llvm-tblgen` using msvc
 mkdir "%ROOTDIR%\build-llvm-host"
 cd "%ROOTDIR%\build-llvm-host"
+set EXTRA_CMAKE_FLAGS=
+if /I "%BUILD_TYPE%" == "Debug" set EXTRA_CMAKE_FLAGS=-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+
 cmake "%ROOTDIR%/llvm" ^
   -G "Ninja" ^
   %CMAKE_LAUNCHER% ^
+  %EXTRA_CMAKE_FLAGS% ^
   -DCMAKE_INSTALL_PREFIX="%ROOTDIR%/%OUTDIR%/host" ^
   -DCMAKE_PREFIX_PATH="%ROOTDIR%/%OUTDIR%/host" ^
   -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
