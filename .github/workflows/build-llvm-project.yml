@@ -15,6 +15,10 @@ on:
         description: 'Tag to upload assets to (e.g. latest, v1.0.0)'
         required: true
         default: 'latest'
+      build_debug:
+        description: 'Build Debug version instead of Release'
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -82,7 +86,7 @@ jobs:
             os: alpine
             arch: arm64
             runner: ubuntu-24.04-arm
-        build_type: [Release, Debug]
+        build_type: [ "${{ github.event.inputs.build_debug == 'true' && 'Debug' || 'Release' }}" ]
     container:
       image: ${{ matrix.config.os == 'alpine' && 'alpine:3.20' || '' }}
     outputs:
@@ -375,4 +379,5 @@ jobs:
             --repo "${{ github.repository }}" \
             --ref "${{ github.ref_name }}" \
             -f llvm_ref="${{ github.event.inputs.llvm_ref }}" \
-            -f release_tag="${{ github.event.inputs.release_tag }}"
+            -f release_tag="${{ github.event.inputs.release_tag }}" \
+            -f build_debug="${{ github.event.inputs.build_debug }}"
