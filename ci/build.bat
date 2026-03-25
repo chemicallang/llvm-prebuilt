@@ -16,6 +16,7 @@ if %ERRORLEVEL% neq 0 (
 
 if "%1" == "" (set "TARGET=x86_64-windows-gnu") ELSE (set TARGET=%~1)
 if "%2" == "" (set "MCPU=native") ELSE (set MCPU=%~2)
+if "%BUILD_TYPE%" == "" set BUILD_TYPE=Release
 if "%VSCMD_ARG_HOST_ARCH%"=="x86" set HOST_TARGET=x86-windows-msvc
 if "%VSCMD_ARG_HOST_ARCH%"=="x64" set HOST_TARGET=x86_64-windows-msvc
 echo Boostrapping targeting %TARGET% (%MCPU%), using %HOST_TARGET% as the host compiler
@@ -57,7 +58,7 @@ cmake "%ROOTDIR%/llvm" ^
   %CMAKE_LAUNCHER% ^
   -DCMAKE_INSTALL_PREFIX="%ROOTDIR%/%OUTDIR%/host" ^
   -DCMAKE_PREFIX_PATH="%ROOTDIR%/%OUTDIR%/host" ^
-  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
   -DLLVM_ENABLE_BINDINGS=OFF ^
   -DLLVM_ENABLE_LIBEDIT=OFF ^
